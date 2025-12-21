@@ -189,7 +189,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                         opt.value = a.id;
                         opt.textContent = a.nombre_completo;
                         studentSelect.appendChild(opt);
-                    });
+                    });AuthenticatorAttestationResponse
                     studentSelect.disabled = false;
                 } else {
                     studentSelect.innerHTML = '<option value="">No hay alumnos</option>';
