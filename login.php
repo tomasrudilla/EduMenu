@@ -21,7 +21,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         if ($user['rol'] === 'admin') {
             header("Location: admin/admin_alumnos.php");
         } else {
-            header("Location: familia/familia_planificador.html");
+            header("Location: familia/familia_planificador.php");
         }
         exit;
     } else {
@@ -154,6 +154,33 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             .login-card { flex-direction: column; }
             .login-sidebar, .login-form-area { width: 100%; padding: 40px; }
         }
+
+        .btn-toggle-eye {
+    position: absolute;
+    right: 15px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    padding: 0;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.25rem;
+    transition: color 0.2s;
+    z-index: 10;
+}
+
+.btn-toggle-eye:hover {
+    color: var(--primary);
+}
+
+/* Evitar que el azul de enfoque de Bootstrap se vea mal en el botón */
+.btn-toggle-eye:focus {
+    outline: none;
+}
     </style>
 </head>
 <body>
@@ -186,9 +213,14 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 </div>
 
                 <div class="mb-4">
-                    <label class="form-label">Contraseña</label>
-                    <input type="password" name="password" class="form-control" placeholder="••••••••" required>
-                </div>
+    <label class="form-label">Contraseña</label>
+    <div class="position-relative">
+        <input type="password" name="password" id="password" class="form-control" placeholder="••••••••" required style="padding-right: 45px;">
+        <button type="button" id="togglePassword" class="btn-toggle-eye">
+            <i class="ph ph-eye" id="eyeIcon"></i>
+        </button>
+    </div>
+</div>
 
                 <button type="submit" class="btn-submit">
                     Ingresar al Panel
@@ -200,6 +232,25 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             </form>
         </div>
     </div>
+
+    <script>
+    const togglePassword = document.querySelector('#togglePassword');
+    const password = document.querySelector('#password');
+    const eyeIcon = document.querySelector('#eyeIcon');
+
+    togglePassword.addEventListener('click', function (e) {
+        // Cambiar el tipo de input
+        const type = password.getAttribute('type') === 'password' ? 'text' : 'password';
+        password.setAttribute('type', type);
+        
+        // Cambiar el ícono
+        if (type === 'password') {
+            eyeIcon.classList.replace('ph-eye-slash', 'ph-eye');
+        } else {
+            eyeIcon.classList.replace('ph-eye', 'ph-eye-slash');
+        }
+    });
+</script>
 
 </body>
 </html>

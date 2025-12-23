@@ -2,7 +2,7 @@
 $host = 'localhost';
 $db   = 'sistema_comedor';
 $user = 'root';
-$pass = ''; 
+$pass = 'Tomas2005.'; 
 $charset = 'utf8mb4';
 
 $dsn = "mysql:host=$host;dbname=$db;charset=$charset";

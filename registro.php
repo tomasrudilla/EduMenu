@@ -3,7 +3,7 @@ require 'conexion/db.php';
 $registro_exitoso = false; // Bandera para el script
 $error_mensaje = "";
 
-// 1. OBTENER TODOS LOS ALUMNOS (Igual que antes)
+// 1. OBTENER TODOS LOS ALUMNOS
 try {
     $stmt = $pdo->query("SELECT id, nombre_completo, curso FROM alumnos WHERE activo = 1 ORDER BY nombre_completo ASC");
     $todos_los_alumnos = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -28,7 +28,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         try {
             $pdo->beginTransaction();
 
-            // PASO A: Insertar Familia (Limpio, sin mail ni pass)
+            // PASO A: Insertar Familia
             $stmtFam = $pdo->prepare("INSERT INTO familias (nombre_responsable, apellido_responsable) VALUES (?, ?)");
             $stmtFam->execute([$nombre_resp, $apellido_resp]);
             $id_familia_nueva = $pdo->lastInsertId();
@@ -45,7 +45,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $stmtUser->execute([$nombre_completo_user, $email, $password_hash, $id_familia_nueva]);
 
             $pdo->commit();
-            $registro_exitoso = true; // ACTIVAMOS EL POP-UP
+            $registro_exitoso = true; 
 
         } catch (Exception $e) {
             $pdo->rollBack();
@@ -59,6 +59,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 <html lang="es" data-bs-theme="dark">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Registro Familia | EduMenu</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
@@ -66,24 +67,126 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     
     <style>
-        :root { --primary: #ea580c; --dark-bg: #0f172a; --dark-card: #1e293b; --dark-input: #334155; --text-light: #f8fafc; }
-        body { background: radial-gradient(circle at top right, #2d1b14 0%, var(--dark-bg) 100%); font-family: 'Plus Jakarta Sans', sans-serif; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 40px 20px; color: var(--text-light); }
-        .reg-card { background: var(--dark-card); border-radius: 32px; border: 1px solid #334155; box-shadow: 0 25px 50px -12px rgba(234, 88, 12, 0.15); width: 100%; max-width: 950px; display: flex; overflow: hidden; }
-        .reg-sidebar { background: linear-gradient(160deg, var(--primary) 0%, #9a3412 100%); width: 30%; padding: 50px; color: white; display: flex; flex-direction: column; justify-content: space-between; }
-        .reg-form-area { padding: 50px; width: 70%; }
-        .filter-box { background: rgba(15, 23, 42, 0.6); padding: 25px; border-radius: 24px; border: 1px solid var(--dark-input); margin-bottom: 30px; }
-        .form-label { font-weight: 700; font-size: 0.75rem; color: var(--primary); text-transform: uppercase; letter-spacing: 0.5px; }
-        .form-control, .form-select { border-radius: 14px; padding: 12px; border: 1px solid var(--dark-input); background: var(--dark-bg) !important; color: white !important; }
-        .form-control:focus, .form-select:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(234, 88, 12, 0.2); }
-        .btn-submit { background: var(--primary); color: white; border: none; padding: 16px; border-radius: 16px; font-weight: 700; width: 100%; transition: 0.3s; }
-        .btn-submit:hover { background: #f97316; transform: translateY(-2px); }
+        :root { 
+            --primary: #ea580c; 
+            --dark-bg: #0f172a; 
+            --dark-card: #1e293b; 
+            --dark-input: #334155; 
+            --text-light: #f8fafc; 
+            --text-muted: #94a3b8;
+        }
         
-        /* Estilo personalizado para el pop-up de SweetAlert para que combine con el Dark Mode */
+        body { 
+            background: radial-gradient(circle at top right, #2d1b14 0%, var(--dark-bg) 100%); 
+            font-family: 'Plus Jakarta Sans', sans-serif; 
+            min-height: 100vh; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            padding: 40px 20px; 
+            color: var(--text-light); 
+        }
+
+        .reg-card { 
+            background: var(--dark-card); 
+            border-radius: 32px; 
+            border: 1px solid #334155; 
+            box-shadow: 0 25px 50px -12px rgba(234, 88, 12, 0.15); 
+            width: 100%; 
+            max-width: 950px; 
+            display: flex; 
+            overflow: hidden; 
+        }
+
+        .reg-sidebar { 
+            background: linear-gradient(160deg, var(--primary) 0%, #9a3412 100%); 
+            width: 30%; 
+            padding: 50px; 
+            color: white; 
+            display: flex; 
+            flex-direction: column; 
+            justify-content: space-between; 
+        }
+
+        .reg-form-area { padding: 50px; width: 70%; }
+        
+        .filter-box { 
+            background: rgba(15, 23, 42, 0.6); 
+            padding: 25px; 
+            border-radius: 24px; 
+            border: 1px solid var(--dark-input); 
+            margin-bottom: 30px; 
+        }
+
+        .form-label { 
+            font-weight: 700; 
+            font-size: 0.75rem; 
+            color: var(--primary); 
+            text-transform: uppercase; 
+            letter-spacing: 0.5px; 
+        }
+
+        .form-control, .form-select { 
+            border-radius: 14px; 
+            padding: 12px; 
+            border: 1px solid var(--dark-input); 
+            background: var(--dark-bg) !important; 
+            color: white !important; 
+        }
+
+        .form-control:focus, .form-select:focus { 
+            border-color: var(--primary); 
+            box-shadow: 0 0 0 3px rgba(234, 88, 12, 0.2); 
+        }
+
+        /* Estilos para el botón del ojito */
+        .password-container { position: relative; }
+        
+        .btn-toggle-eye {
+            position: absolute;
+            right: 15px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            padding: 0;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            font-size: 1.2rem;
+            z-index: 10;
+            transition: color 0.2s;
+        }
+
+        .btn-toggle-eye:hover { color: var(--primary); }
+
+        .btn-submit { 
+            background: var(--primary); 
+            color: white; 
+            border: none; 
+            padding: 16px; 
+            border-radius: 16px; 
+            font-weight: 700; 
+            width: 100%; 
+            transition: 0.3s; 
+        }
+
+        .btn-submit:hover { 
+            background: #f97316; 
+            transform: translateY(-2px); 
+        }
+        
         .swal2-popup-custom {
             background: #1e293b !important;
             color: #ffffff !important;
             border-radius: 24px !important;
             border: 1px solid #334155 !important;
+        }
+
+        @media (max-width: 768px) {
+            .reg-card { flex-direction: column; }
+            .reg-sidebar, .reg-form-area { width: 100%; padding: 30px; }
         }
     </style>
 </head>
@@ -153,11 +256,21 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 <div class="row g-3 mb-4">
                     <div class="col-md-6">
                         <label class="form-label">Contraseña</label>
-                        <input type="password" name="password" class="form-control" required>
+                        <div class="password-container">
+                            <input type="password" name="password" id="pass" class="form-control" required style="padding-right: 45px;">
+                            <button type="button" class="btn-toggle-eye" onclick="togglePass('pass', this)">
+                                <i class="ph ph-eye"></i>
+                            </button>
+                        </div>
                     </div>
                     <div class="col-md-6">
                         <label class="form-label">Confirmar Contraseña</label>
-                        <input type="password" name="confirm_password" class="form-control" required>
+                        <div class="password-container">
+                            <input type="password" name="confirm_password" id="confirm_pass" class="form-control" required style="padding-right: 45px;">
+                            <button type="button" class="btn-toggle-eye" onclick="togglePass('confirm_pass', this)">
+                                <i class="ph ph-eye"></i>
+                            </button>
+                        </div>
                     </div>
                 </div>
 
@@ -171,6 +284,20 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     </div>
 
     <script>
+        // Función para mostrar/ocultar contraseña
+        function togglePass(inputId, btn) {
+            const input = document.getElementById(inputId);
+            const icon = btn.querySelector('i');
+            
+            if (input.type === "password") {
+                input.type = "text";
+                icon.classList.replace('ph-eye', 'ph-eye-slash');
+            } else {
+                input.type = "password";
+                icon.classList.replace('ph-eye-slash', 'ph-eye');
+            }
+        }
+
         // Data inyectada de PHP para el filtro local
         const ALUMNOS_DATA = <?php echo json_encode($todos_los_alumnos); ?>;
         const yearF = document.getElementById('yearFilter');
@@ -202,7 +329,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         yearF.addEventListener('change', filterStudents);
         courseF.addEventListener('change', filterStudents);
 
-        // --- LÓGICA DEL POP-UP Y REDIRECCIÓN ---
+        // LÓGICA DEL POP-UP
         <?php if($registro_exitoso): ?>
             Swal.fire({
                 title: '¡Registro Exitoso!',
@@ -211,9 +338,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 timer: 3000,
                 timerProgressBar: true,
                 showConfirmButton: false,
-                customClass: {
-                    popup: 'swal2-popup-custom'
-                },
+                customClass: { popup: 'swal2-popup-custom' },
                 background: '#1e293b',
                 color: '#ffffff',
                 iconColor: '#ea580c'
