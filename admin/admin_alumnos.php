@@ -2,60 +2,40 @@
 session_start();
 require '../conexion/db.php';
 
-// 1. Verificación de Seguridad: Solo admin
-// if (!isset($_SESSION['rol']) || $_SESSION['rol'] !== 'admin') {
-//     header("Location: ../login.php");
-//     exit;
-// }
+// Parámetros de Filtro
+$search = $_GET['search'] ?? '';
+$fecha_filtro = $_GET['fecha'] ?? date('Y-m-d'); 
+$anio = $_GET['anio'] ?? 'Todos';
+$division = $_GET['division'] ?? 'Todos';
+$estado = $_GET['estado'] ?? 'Todos';
 
-// 2. Procesar la creación de un nuevo alumno
-if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['crear_alumno'])) {
-    $nombre = $_POST['nombre_completo'];
-    $curso = $_POST['curso_anio'] . " " . $_POST['curso_division'];
-    $alergias = $_POST['alergias'];
-
-    try {
-        $stmt_ins = $pdo->prepare("INSERT INTO alumnos (nombre_completo, curso, alergias, activo) VALUES (?, ?, ?, 1)");
-        $stmt_ins->execute([$nombre, $curso, $alergias]);
-        
-        header("Location: admin_alumnos.php?status=success");
-        exit;
-    } catch (PDOException $e) {
-        $error_mensaje = "Error al crear el alumno: " . $e->getMessage();
-    }
-}
-
-// 3. Parámetros de Filtro
-$search = isset($_GET['search']) ? $_GET['search'] : '';
-$anio = isset($_GET['anio']) ? $_GET['anio'] : 'Todos';
-$estado = isset($_GET['estado']) ? $_GET['estado'] : 'Todos';
-$hoy = date('Y-m-d');
-
-// 4. Construcción de la Consulta SQL Principal
+// Consulta SQL con JOIN para platos reales
 $sql = "SELECT 
             a.id, 
             a.nombre_completo AS alumno, 
             a.curso, 
-            f.nombre_responsable, 
             f.apellido_responsable,
-            s.tipo AS seleccion_hoy,
-            (SELECT COALESCE(SUM(t.monto), 0) FROM transacciones t WHERE t.familia_id = f.id) AS saldo
+            s.tipo AS seleccion_tipo,
+            s.observacion AS seleccion_obs,
+            m.plato_principal, 
+            m.plato_alternativo, 
+            m.opcion_veggie
         FROM alumnos a
         LEFT JOIN familias f ON a.familia_id = f.id
         LEFT JOIN selecciones s ON a.id = s.alumno_id AND s.fecha = ?
+        LEFT JOIN menus m ON m.fecha = ?
         WHERE (a.nombre_completo LIKE ? OR f.nombre_responsable LIKE ? OR f.apellido_responsable LIKE ?)";
 
-$params = [$hoy, "%$search%", "%$search%", "%$search%"];
+$params = [$fecha_filtro, $fecha_filtro, "%$search%", "%$search%", "%$search%"];
 
-if ($anio !== 'Todos') {
-    $sql .= " AND a.curso LIKE ?";
-    $params[] = "%$anio%";
-}
+if ($anio !== 'Todos') { $sql .= " AND a.curso LIKE ?"; $params[] = "$anio%"; }
+if ($division !== 'Todos') { $sql .= " AND a.curso LIKE ?"; $params[] = "%$division"; }
 
 if ($estado !== 'Todos') {
     if ($estado === 'Comen Menú') $sql .= " AND s.tipo = 'menu'";
     if ($estado === 'Traen Vianda') $sql .= " AND s.tipo = 'vianda'";
-    if ($estado === 'Con Deuda') $sql .= " HAVING saldo < 0";
+    if ($estado === 'Ausentes') $sql .= " AND s.tipo = 'ausente'";
+    if ($estado === 'Sin Selección') $sql .= " AND s.tipo IS NULL";
 }
 
 $stmt = $pdo->prepare($sql);
@@ -74,147 +54,199 @@ $alumnos = $stmt->fetchAll(PDO::FETCH_ASSOC);
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <style>
-        body { font-family: 'Plus Jakarta Sans', sans-serif; }
-        ::-webkit-scrollbar { width: 6px; }
-        ::-webkit-scrollbar-thumb { background: #ea580c; border-radius: 10px; }
-        .modal-active { overflow: hidden; }
+        body { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 16px; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        
+        /* Estilo para fila verificada */
+        .row-verified { opacity: 0.5; background-color: #f1f5f9 !important; transition: all 0.3s; }
+        .row-verified p.alumno-name { text-decoration: line-through; color: #94a3b8; }
+
+        /* Custom Checkbox Naranja */
+        .check-orange {
+            width: 24px; height: 24px;
+            cursor: pointer;
+            accent-color: #ea580c;
+        }
     </style>
 </head>
-<body class="bg-slate-50 text-slate-900 flex h-screen overflow-hidden">
+<body class="bg-slate-50 text-slate-900 flex flex-col md:flex-row h-screen overflow-hidden">
 
     <?php include '../includes/sidebar_admin.php'; ?>
 
-    <main class="flex-1 flex flex-col overflow-hidden">
-        <header class="h-20 bg-white border-b border-slate-200 px-10 flex items-center justify-between">
+    <main class="flex-1 flex flex-col min-w-0 overflow-hidden">
+        <header class="h-auto md:h-24 bg-white border-b border-slate-200 px-6 md:px-10 py-4 flex flex-col md:flex-row items-center justify-between gap-4 shrink-0">
             <div>
-                <h1 class="text-xl font-extrabold text-slate-900 uppercase tracking-tight">Panel de Alumnos</h1>
-                <p class="text-sm text-slate-500">Gestiona las selecciones hoy (<?php echo date('d/m'); ?>).</p>
+                <h1 class="text-2xl font-black text-slate-900 uppercase tracking-tight">Panel de Alumnos</h1>
+                <p class="text-sm text-slate-500 font-bold uppercase tracking-widest">
+                    Día: <span class="text-orange-600"><?= date('d/m/Y', strtotime($fecha_filtro)) ?></span>
+                </p>
             </div>
-            
-            <div class="flex items-center gap-4">
-                <button onclick="window.print()" class="bg-slate-100 px-4 py-2 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-200 transition-all">
-                    <i class="ph ph-download-simple"></i> Exportar
-                </button>
-                <button onclick="openModal()" class="bg-orange-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold hover:bg-orange-700 transition-all shadow-lg shadow-orange-100">
-                    <i class="ph ph-plus-circle"></i> Nuevo Alumno
-                </button>
-            </div>
+            <button onclick="openModal()" class="bg-orange-600 text-white px-6 py-3 rounded-2xl text-base font-bold hover:bg-orange-700 transition-all shadow-lg flex items-center gap-2">
+                <i class="ph ph-plus-circle text-xl"></i> Nuevo Alumno
+            </button>
         </header>
 
-        <section class="p-10 pb-4">
-            <form method="GET" class="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-wrap gap-4 items-end">
-                <div class="flex-1 min-w-[200px]">
-                    <label class="text-xs font-bold text-orange-600 uppercase mb-2 block tracking-widest">Búsqueda Rápida</label>
-                    <div class="relative">
-                        <i class="ph ph-magnifying-glass absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"></i>
-                        <input type="text" name="search" value="<?= htmlspecialchars($search); ?>" placeholder="Alumno o familia..." class="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-orange-500 outline-none transition-all">
-                    </div>
+        <section class="p-4 md:p-6 shrink-0">
+            <form method="GET" class="bg-white p-6 rounded-[2.5rem] border border-slate-200 shadow-sm grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-5">
+                <div class="lg:col-span-1">
+                    <label class="text-xs font-black text-orange-600 uppercase mb-2 block tracking-widest">Búsqueda</label>
+                    <input type="text" name="search" value="<?= htmlspecialchars($search); ?>" placeholder="Nombre..." class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none text-base">
                 </div>
-                <div class="w-48">
-                    <label class="text-xs font-bold text-slate-500 uppercase mb-2 block tracking-widest">Año</label>
-                    <select name="anio" onchange="this.form.submit()" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-orange-500">
+                <div>
+                    <label class="text-xs font-black text-slate-400 uppercase mb-2 block tracking-widest">Día</label>
+                    <input type="date" name="fecha" value="<?= $fecha_filtro ?>" onchange="this.form.submit()" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-base">
+                </div>
+                <div>
+                    <label class="text-xs font-black text-slate-400 uppercase mb-2 block tracking-widest">Año</label>
+                    <select name="anio" onchange="this.form.submit()" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-base font-medium">
                         <option value="Todos">Todos</option>
                         <?php foreach(['1ero','2do','3ero','4to','5to','6to'] as $a): ?>
                             <option value="<?= $a ?>" <?= $anio == $a ? 'selected' : ''; ?>><?= $a ?></option>
                         <?php endforeach; ?>
                     </select>
                 </div>
-                <div class="w-48">
-                    <label class="text-xs font-bold text-slate-500 uppercase mb-2 block tracking-widest">Estado</label>
-                    <select name="estado" onchange="this.form.submit()" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-orange-500">
+                <div>
+                    <label class="text-xs font-black text-slate-400 uppercase mb-2 block tracking-widest">División</label>
+                    <select name="division" onchange="this.form.submit()" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-base font-medium">
+                        <option value="Todos">Todas</option>
+                        <?php foreach(['A','B','C'] as $d): ?>
+                            <option value="<?= $d ?>" <?= $division == $d ? 'selected' : ''; ?>><?= $d ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div>
+                    <label class="text-xs font-black text-slate-400 uppercase mb-2 block tracking-widest">Selección</label>
+                    <select name="estado" onchange="this.form.submit()" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-base font-medium">
                         <option value="Todos">Todos</option>
                         <option <?= $estado == 'Comen Menú' ? 'selected' : ''; ?>>Comen Menú</option>
                         <option <?= $estado == 'Traen Vianda' ? 'selected' : ''; ?>>Traen Vianda</option>
-                        <option <?= $estado == 'Con Deuda' ? 'selected' : ''; ?>>Con Deuda</option>
+                        <option <?= $estado == 'Ausentes' ? 'selected' : ''; ?>>Ausentes</option>
+                        <option <?= $estado == 'Sin Selección' ? 'selected' : ''; ?>>Sin Selección</option>
                     </select>
                 </div>
             </form>
         </section>
 
-        <section class="flex-1 p-10 pt-0 overflow-y-auto">
-            <div class="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
-                <table class="w-full text-left">
-                    <thead class="bg-slate-50 border-b border-slate-200">
-                        <tr>
-                            <th class="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-widest">Alumno / Familia</th>
-                            <th class="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-widest">Curso</th>
-                            <th class="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-widest text-center">Acciones</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-slate-100">
-                        <?php foreach($alumnos as $alumno): ?>
-                        <tr class="hover:bg-slate-50/80 transition-all">
-                            <td class="px-6 py-5">
-                                <p class="font-bold text-slate-800"><?= htmlspecialchars($alumno['alumno']); ?></p>
-                                <p class="text-xs text-slate-400 italic">
-                                    <?= $alumno['apellido_responsable'] ? 'Fam. ' . htmlspecialchars($alumno['apellido_responsable']) : 'Sin familia vinculada' ?>
-                                </p>
-                            </td>
-                            <td class="px-6 py-5 text-sm text-slate-600 font-medium"><?= htmlspecialchars($alumno['curso']); ?></td>
-                            <td class="px-6 py-5 text-center">
-                                <div class="flex justify-center gap-2">
-                                    <a href="editar_alumno.php?id=<?= $alumno['id']; ?>" class="p-2 hover:bg-orange-100 hover:text-orange-600 rounded-xl transition-all text-slate-400" title="Editar">
-                                        <i class="ph ph-pencil-simple-line text-lg"></i>
-                                    </a>
-                                    <a href="ver_alumno.php?id=<?= $alumno['id']; ?>" class="p-2 hover:bg-blue-100 hover:text-blue-600 rounded-xl transition-all text-slate-400" title="Ver Perfil">
-                                        <i class="ph ph-eye text-lg"></i>
-                                    </a>
-                                </div>
-                            </td>
-                        </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
+        <section class="flex-1 px-4 md:px-6 pb-6 overflow-hidden">
+            <div class="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm h-full flex flex-col overflow-hidden">
+                <div class="overflow-x-auto h-full">
+                    <table class="w-full text-left border-collapse min-w-[1000px]">
+                        <thead>
+                            <tr class="bg-slate-50/80 border-b border-slate-200 sticky top-0 z-10">
+                                <th class="px-8 py-5 text-xs font-black text-slate-400 uppercase tracking-widest text-center w-20">Check</th>
+                                <th class="px-8 py-5 text-xs font-black text-slate-400 uppercase tracking-widest">Alumno / Familia</th>
+                                <th class="px-8 py-5 text-xs font-black text-slate-400 uppercase tracking-widest text-center">Curso</th>
+                                <th class="px-8 py-5 text-xs font-black text-slate-400 uppercase tracking-widest">Detalle de Comida</th>
+                                <th class="px-8 py-5 text-xs font-black text-slate-400 uppercase tracking-widest text-center">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100 overflow-y-auto">
+                            <?php foreach($alumnos as $alumno): 
+                                $tipo = $alumno['seleccion_tipo'];
+                                $obs = $alumno['seleccion_obs'];
+                                
+                                $nombre_plato = "Sin asignar";
+                                $postre = "—";
+
+                                if ($tipo === 'menu' && !empty($obs)) {
+                                    if (strpos($obs, 'Plato: Principal') !== false) $nombre_plato = $alumno['plato_principal'] ?? 'No cargado';
+                                    elseif (strpos($obs, 'Plato: Alternativo') !== false) $nombre_plato = $alumno['plato_alternativo'] ?? 'No cargado';
+                                    elseif (strpos($obs, 'Plato: Veggie') !== false) $nombre_plato = $alumno['opcion_veggie'] ?? 'No cargado';
+                                    $postre = (strpos($obs, 'Postre: SI') !== false) ? "SÍ" : "NO";
+                                }
+                            ?>
+                            <tr class="hover:bg-slate-50/50 transition-all student-row" id="alumno-row-<?= $alumno['id'] ?>">
+                                <td class="px-8 py-6 text-center">
+                                    <input type="checkbox" 
+                                           class="check-orange" 
+                                           onchange="verifyStudent(<?= $alumno['id'] ?>, this)"
+                                           id="check-<?= $alumno['id'] ?>">
+                                </td>
+                                <td class="px-8 py-6">
+                                    <p class="font-extrabold text-slate-900 text-lg alumno-name"><?= htmlspecialchars($alumno['alumno']); ?></p>
+                                    <p class="text-xs text-slate-400 font-bold uppercase tracking-tight">
+                                        <?= $alumno['apellido_responsable'] ? 'Fam. ' . htmlspecialchars($alumno['apellido_responsable']) : 'Sin Vínculo' ?>
+                                    </p>
+                                </td>
+                                <td class="px-8 py-6 text-center">
+                                    <span class="bg-slate-100 px-4 py-1.5 rounded-xl text-sm font-black text-slate-600 uppercase">
+                                        <?= htmlspecialchars($alumno['curso']); ?>
+                                    </span>
+                                </td>
+                                <td class="px-8 py-6">
+                                    <?php if (!$tipo): ?>
+                                        <span class="text-slate-300 italic text-sm font-bold">Sin selección</span>
+                                    <?php elseif ($tipo === 'ausente'): ?>
+                                        <span class="text-red-500 font-black text-sm uppercase flex items-center gap-2">
+                                            <i class="ph-fill ph-user-minus text-lg"></i> Ausente
+                                        </span>
+                                    <?php elseif ($tipo === 'vianda'): ?>
+                                        <span class="text-blue-600 font-black text-sm uppercase flex items-center gap-2">
+                                            <i class="ph-fill ph-backpack text-lg"></i> Trae Vianda
+                                        </span>
+                                    <?php else: ?>
+                                        <div class="flex flex-col">
+                                            <span class="text-emerald-600 font-black text-base uppercase flex items-center gap-2">
+                                                <i class="ph-fill ph-bowl-food text-xl"></i> <?= htmlspecialchars($nombre_plato) ?>
+                                            </span>
+                                            <span class="text-xs font-bold text-slate-400 uppercase mt-1">Postre: <span class="<?= $postre == 'SÍ' ? 'text-purple-600' : '' ?>"><?= $postre ?></span></span>
+                                        </div>
+                                    <?php endif; ?>
+                                </td>
+                                <td class="px-8 py-6 text-center">
+                                    <div class="flex justify-center gap-3">
+                                        <a href="editar_alumno.php?id=<?= $alumno['id']; ?>" class="w-10 h-10 flex items-center justify-center hover:bg-orange-100 hover:text-orange-600 rounded-xl transition-all text-slate-400 border border-slate-100">
+                                            <i class="ph ph-pencil-simple text-xl"></i>
+                                        </a>
+                                        <a href="ver_alumno.php?id=<?= $alumno['id']; ?>" class="w-10 h-10 flex items-center justify-center hover:bg-blue-100 hover:text-blue-600 rounded-xl transition-all text-slate-400 border border-slate-100">
+                                            <i class="ph ph-eye text-xl"></i>
+                                        </a>
+                                    </div>
+                                </td>
+                            </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </section>
     </main>
 
-    <div id="modalAlumno" class="fixed inset-0 z-50 hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-sm">
-        <div class="bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl border border-slate-200 overflow-hidden scale-95 transition-transform duration-300">
-            <div class="p-8 border-b border-slate-100 flex justify-between items-center">
-                <h2 class="text-xl font-extrabold text-slate-900 uppercase">Nuevo Alumno</h2>
-                <button onclick="closeModal()" class="text-slate-400 hover:text-red-500 transition-colors"><i class="ph ph-x-circle text-3xl"></i></button>
-            </div>
-            <form method="POST" class="p-8 space-y-5">
-                <div>
-                    <label class="text-xs font-bold text-orange-600 uppercase mb-2 block tracking-widest">Nombre Completo</label>
-                    <input type="text" name="nombre_completo" required placeholder="Ej: Juan Pérez" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-orange-500">
-                </div>
-                <div class="grid grid-cols-2 gap-4">
-                    <div>
-                        <label class="text-xs font-bold text-slate-500 uppercase mb-2 block tracking-widest">Año</label>
-                        <select name="curso_anio" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-orange-500">
-                            <?php foreach(['1ero','2do','3ero','4to','5to','6to'] as $anio_op): ?><option><?= $anio_op ?></option><?php endforeach; ?>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="text-xs font-bold text-slate-500 uppercase mb-2 block tracking-widest">División</label>
-                        <select name="curso_division" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-orange-500">
-                            <option>A</option><option>B</option><option>C</option>
-                        </select>
-                    </div>
-                </div>
-                <div>
-                    <label class="text-xs font-bold text-slate-500 uppercase mb-2 block tracking-widest">Alergias / Observaciones</label>
-                    <textarea name="alergias" rows="2" placeholder="Opcional..." class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-orange-500"></textarea>
-                </div>
-                <div class="pt-4 flex gap-3">
-                    <button type="button" onclick="closeModal()" class="flex-1 py-4 text-sm font-bold text-slate-500 bg-slate-100 rounded-2xl">Cancelar</button>
-                    <button type="submit" name="crear_alumno" class="flex-1 py-4 text-sm font-bold text-white bg-orange-600 rounded-2xl shadow-lg shadow-orange-100">Crear Alumno</button>
-                </div>
-            </form>
-        </div>
-    </div>
-
     <script>
-        const modal = document.getElementById('modalAlumno');
-        function openModal() { modal.classList.remove('hidden'); document.body.classList.add('modal-active'); }
-        function closeModal() { modal.classList.add('hidden'); document.body.classList.remove('modal-active'); }
-        window.onclick = function(e) { if (e.target == modal) closeModal(); }
+        // Función para marcar alumnos como verificados
+        function verifyStudent(id, checkbox) {
+            const row = document.getElementById('alumno-row-' + id);
+            const verifiedList = JSON.parse(localStorage.getItem('verified_students_<?= $fecha_filtro ?>') || '[]');
 
-        <?php if(isset($_GET['status']) && $_GET['status'] == 'success'): ?>
-        Swal.fire({ title: '¡Éxito!', text: 'Alumno creado correctamente.', icon: 'success', confirmButtonColor: '#ea580c' });
-        <?php endif; ?>
+            if (checkbox.checked) {
+                row.classList.add('row-verified');
+                if (!verifiedList.includes(id)) verifiedList.push(id);
+            } else {
+                row.classList.remove('row-verified');
+                const index = verifiedList.indexOf(id);
+                if (index > -1) verifiedList.splice(index, 1);
+            }
+
+            localStorage.setItem('verified_students_<?= $fecha_filtro ?>', JSON.stringify(verifiedList));
+        }
+
+        // Cargar estado de verificación al iniciar la página
+        window.addEventListener('load', () => {
+            const verifiedList = JSON.parse(localStorage.getItem('verified_students_<?= $fecha_filtro ?>') || '[]');
+            verifiedList.forEach(id => {
+                const row = document.getElementById('alumno-row-' + id);
+                const check = document.getElementById('check-' + id);
+                if (row && check) {
+                    row.classList.add('row-verified');
+                    check.checked = true;
+                }
+            });
+        });
+
+        // Lógica modal (se mantiene igual)
+        const modal = document.getElementById('modalAlumno');
+        function openModal() { modal.classList.remove('hidden'); setTimeout(() => modal.querySelector('div').classList.remove('scale-95'), 10); }
+        function closeModal() { modal.querySelector('div').classList.add('scale-95'); setTimeout(() => modal.classList.add('hidden'), 200); }
     </script>
 </body>
 </html>
