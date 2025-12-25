@@ -5,10 +5,15 @@ require '../conexion/db.php';
 // 1. Identificación de la Familia
 $familia_id = $_SESSION['familia_id'] ?? 1; 
 
-// 2. OBTENER HIJOS VINCULADOS
-$stmt_h = $pdo->prepare("SELECT nombre_completo FROM alumnos WHERE familia_id = ?");
+// 2. OBTENER HIJOS VINCULADOS (Corregido: nombre_completo -> nombre, apellido | activo -> status)
+$stmt_h = $pdo->prepare("SELECT nombre, apellido FROM alumnos WHERE familia_id = ? AND status = 'ACTIVE'");
 $stmt_h->execute([$familia_id]);
-$hijos = $stmt_h->fetchAll(PDO::FETCH_COLUMN);
+$alumnos_data = $stmt_h->fetchAll(PDO::FETCH_ASSOC);
+
+$hijos = [];
+foreach ($alumnos_data as $alu) {
+    $hijos[] = $alu['nombre'] . ' ' . $alu['apellido'];
+}
 $cantidad_hijos = count($hijos);
 
 // 3. Balance Total Familiar (Suma de transacciones)

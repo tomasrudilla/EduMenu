@@ -14,8 +14,8 @@ if ($archivo_actual == 'editar_alumno.php' || $archivo_actual == 'ver_alumno.php
     $id_url = isset($_GET['id']) ? (int)$_GET['id'] : 0;
     
     if ($id_url > 0) {
-        // Consultamos el nombre del alumno para mostrarlo en el sidebar
-        $stmt_side = $pdo->prepare("SELECT nombre_completo FROM alumnos WHERE id = ?");
+        // CORRECCIÓN: Consultamos nombre y apellido concatenados
+        $stmt_side = $pdo->prepare("SELECT CONCAT(nombre, ' ', apellido) FROM alumnos WHERE id = ?");
         $stmt_side->execute([$id_url]);
         $alumno_nombre_sidebar = $stmt_side->fetchColumn();
     }

@@ -9,9 +9,10 @@ require 'conexion/db.php';
 $registro_exitoso = false; 
 $error_mensaje = "";
 
-// 2. OBTENER ALUMNOS SIN FAMILIA
+// 2. OBTENER ALUMNOS DISPONIBLES (Buscando por texto 'ACTIVE')
 try {
-    $stmt = $pdo->query("SELECT id, nombre_completo, curso FROM alumnos WHERE activo = 1 AND familia_id IS NULL ORDER BY nombre_completo ASC");
+    // La consulta ahora busca el string exacto 'ACTIVE'
+    $stmt = $pdo->query("SELECT id, nombre, apellido, anio, curso FROM alumnos WHERE status = 'ACTIVE' AND familia_id IS NULL ORDER BY apellido ASC");
     $todos_los_alumnos = $stmt->fetchAll(PDO::FETCH_ASSOC);
 } catch (PDOException $e) {
     $todos_los_alumnos = [];
@@ -26,7 +27,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $pass           = $_POST['password'];
     $confirm_pass   = $_POST['confirm_password'];
 
-    // Verificar si el email ya existe
     $stmtCheckEmail = $pdo->prepare("SELECT id FROM usuarios WHERE email = ?");
     $stmtCheckEmail->execute([$email]);
     
@@ -51,10 +51,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 $stmtAlu->execute([$id_familia_nueva, $aid]);
             }
 
-            // PASO C: Crear Usuario
+            // PASO C: Crear Usuario con nombre y apellido separados
             $password_hash = password_hash($pass, PASSWORD_BCRYPT);
-            $stmtUser = $pdo->prepare("INSERT INTO usuarios (nombre, email, password, rol, familia_id) VALUES (?, ?, ?, 'familia', ?)");
-            $stmtUser->execute([$nombre_resp . " " . $apellido_resp, $email, $password_hash, $id_familia_nueva]);
+            $stmtUser = $pdo->prepare("INSERT INTO usuarios (nombre, apellido, email, password, rol, familia_id) VALUES (?, ?, ?, ?, 'familia', ?)");
+            $stmtUser->execute([$nombre_resp, $apellido_resp, $email, $password_hash, $id_familia_nueva]);
 
             $pdo->commit();
             $registro_exitoso = true; 
@@ -65,29 +65,17 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 $mail->isSMTP();
                 $mail->Host       = 'smtp.gmail.com'; 
                 $mail->SMTPAuth   = true;
-                $mail->Username   = 'tomasrudilla@gmail.com'; // <--- VERIFICA QUE ESTE SEA TU MAIL
-                $mail->Password   = 'gpzn hbvi znqj nooq';   // <--- TU CLAVE DE APLICACIÓN
+                $mail->Username   = 'tomasrudilla@gmail.com'; 
+                $mail->Password   = 'gpzn hbvi znqj nooq';   
                 $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
                 $mail->Port       = 587;
-
                 $mail->setFrom('noreply@edumenu.com', 'EduMenu');
                 $mail->addAddress($email, $nombre_resp);
-
                 $mail->isHTML(true);
-                $mail->Subject = 'Bienvenido a EduMenu - Registro Exitoso';
-                $mail->Body    = "
-                <div style='font-family: sans-serif; background: #f8fafc; padding: 40px;'>
-                    <div style='background: white; border-radius: 20px; padding: 30px; border-top: 6px solid #ea580c; max-width: 500px; margin: auto;'>
-                        <h2 style='color: #0f172a;'>¡Hola, $nombre_resp!</h2>
-                        <p>Tu registro en <strong>EduMenu</strong> fue exitoso.</p>
-                        <p>Ya podés gestionar los menús de tus hijos de forma unificada.</p>
-                        <div style='text-align: center; margin-top: 30px;'>
-                            <a href='http://localhost/Comedor-Panel/login.php' style='background: #ea580c; color: white; padding: 14px 28px; text-decoration: none; border-radius: 12px; font-weight: bold; display: inline-block;'>Ingresar al Panel</a>
-                        </div>
-                    </div>
-                </div>";
+                $mail->Subject = 'Bienvenido a EduMenu';
+                $mail->Body    = "<h2>¡Hola, $nombre_resp!</h2><p>Tu cuenta familiar ha sido creada.</p>";
                 $mail->send();
-            } catch (Exception $e) { /* Error de mail no bloquea el registro */ }
+            } catch (Exception $e) { }
 
         } catch (Exception $e) {
             $pdo->rollBack();
@@ -115,10 +103,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         .reg-form-area { padding: 50px; width: 70%; background: var(--dark-card); color: white; }
         .form-label { font-weight: 700; font-size: 0.65rem; color: var(--primary); text-transform: uppercase; letter-spacing: 1px; }
         .form-control, .form-select { border-radius: 12px; background-color: var(--dark-bg) !important; border: 1px solid #334155; color: white !important; font-size: 0.85rem; padding: 12px 15px; }
-        .form-control:focus, .form-select:focus { background-color: var(--dark-bg) !important; color: white !important; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(234, 88, 12, 0.2); outline: none; }
-        .match-badge { font-size: 10px; font-weight: 800; text-transform: uppercase; margin-top: 5px; display: none; align-items: center; gap: 4px; }
-        .match-success { color: #10b981; display: flex; }
-        .login-footer a { color: var(--primary); font-weight: 700; text-decoration: none !important; }
+        .form-control:focus, .form-select:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(234, 88, 12, 0.2); outline: none; }
         .student-row { background: rgba(15, 23, 42, 0.5); padding: 20px; border-radius: 20px; border: 1px solid #334155; margin-bottom: 15px; position: relative; }
         .btn-add { background: rgba(234, 88, 12, 0.1); color: var(--primary); border: 1px dashed var(--primary); border-radius: 12px; padding: 12px; width: 100%; font-weight: 700; font-size: 0.8rem; }
         .btn-submit { background: var(--primary); color: white; border: none; padding: 16px; border-radius: 16px; font-weight: 800; width: 100%; text-transform: uppercase; }
@@ -145,9 +130,26 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     <div id="studentsContainer">
                         <div class="student-row" id="row_1">
                             <div class="row g-2">
-                                <div class="col-md-3"><label class="form-label text-white-50">Año</label><select class="form-select year-f" onchange="filterLocal(1)"><option value="">-</option><option value="1">1ero</option><option value="2">2do</option><option value="3">3ero</option><option value="4">4to</option><option value="5">5to</option><option value="6">6to</option></select></div>
-                                <div class="col-md-3"><label class="form-label text-white-50">Curso</label><select class="form-select course-f" onchange="filterLocal(1)"><option value="">-</option><option value="A">A</option><option value="B">B</option><option value="C">C</option></select></div>
-                                <div class="col-md-6"><label class="form-label text-white-50">Alumno</label><select name="alumno_id[]" class="form-select student-s" required onchange="checkDuplicate(this)"><option value="">Elegí filtros...</option></select></div>
+                                <div class="col-md-3">
+                                    <label class="form-label text-white-50">Año</label>
+                                    <select class="form-select year-f" onchange="filterLocal(1)">
+                                        <option value="">-</option>
+                                        <option value="1">1ero</option><option value="2">2do</option><option value="3">3ero</option>
+                                        <option value="4">4to</option><option value="5">5to</option><option value="6">6to</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label text-white-50">Curso</label>
+                                    <select class="form-select course-f" onchange="filterLocal(1)">
+                                        <option value="">-</option><option value="A">A</option><option value="B">B</option><option value="C">C</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label text-white-50">Alumno</label>
+                                    <select name="alumno_id[]" class="form-select student-s" required onchange="checkDuplicate(this)">
+                                        <option value="">Elegí filtros...</option>
+                                    </select>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -171,12 +173,11 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     <div class="col-md-6">
                         <label class="form-label">Confirmar Contraseña</label>
                         <div class="password-wrapper"><input type="password" name="confirm_password" id="p2" class="form-control" required onkeyup="validatePass()"><button type="button" class="btn-eye" onclick="toggleEye('p2', this)"><i class="ph ph-eye"></i></button></div>
-                        <div id="matchIndicator" class="match-badge"><i class="ph-fill ph-check-circle"></i> Coinciden</div>
+                        <div id="matchIndicator" class="match-badge" style="display: none; color: #10b981; align-items: center; gap: 4px;"><i class="ph-fill ph-check-circle"></i> Coinciden</div>
                     </div>
                 </div>
 
                 <button type="submit" class="btn-submit">Finalizar Registro</button>
-                <div class="mt-4 text-center login-footer"><p>¿Ya tenés cuenta?</p><a href="login.php"><i class="ph ph-arrow-left me-1"></i> Ir al Inicio de Sesión</a></div>
             </form>
         </div>
     </div>
@@ -211,14 +212,16 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
         function filterLocal(id) {
             const row = document.getElementById(`row_${id}`);
-            const y = row.querySelector('.year-f').value;
-            const c = row.querySelector('.course-f').value;
+            const anio_f = row.querySelector('.year-f').value;
+            const curso_f = row.querySelector('.course-f').value;
             const sel = row.querySelector('.student-s');
             sel.innerHTML = '<option value="">Cargando...</option>';
-            const filtered = ALUMNOS_DATA.filter(a => a.curso.includes(y) && a.curso.includes(c));
+            const filtered = ALUMNOS_DATA.filter(a => a.anio == anio_f && a.curso === curso_f);
             if(filtered.length > 0) {
                 sel.innerHTML = '<option value="">Selecciona...</option>';
-                filtered.forEach(a => { sel.innerHTML += `<option value="${a.id}">${a.nombre_completo}</option>`; });
+                filtered.forEach(a => { 
+                    sel.innerHTML += `<option value="${a.id}">${a.nombre} ${a.apellido}</option>`; 
+                });
             } else { sel.innerHTML = '<option value="">Sin resultados</option>'; }
         }
 
@@ -239,7 +242,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         }
 
         <?php if($registro_exitoso): ?>
-            Swal.fire({ title: '¡Hecho!', text: 'Familia registrada y correo enviado.', icon: 'success', confirmButtonColor: '#ea580c', background: '#1e293b', color: '#fff' })
+            Swal.fire({ title: '¡Hecho!', text: 'Familia registrada.', icon: 'success', confirmButtonColor: '#ea580c' })
             .then(() => { window.location.href = 'login.php'; });
         <?php endif; ?>
     </script>

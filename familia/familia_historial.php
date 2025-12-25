@@ -9,8 +9,8 @@ if (!$familia_id) {
     exit;
 }
 
-// 2. OBTENER ALUMNOS VINCULADOS
-$stmt_hijos = $pdo->prepare("SELECT id, nombre_completo, curso FROM alumnos WHERE familia_id = ? AND activo = 1");
+// 2. OBTENER ALUMNOS VINCULADOS (Corregido según nueva estructura)
+$stmt_hijos = $pdo->prepare("SELECT id, nombre, apellido, curso FROM alumnos WHERE familia_id = ? AND status = 'ACTIVE'");
 $stmt_hijos->execute([$familia_id]);
 $mis_hijos = $stmt_hijos->fetchAll();
 
@@ -21,7 +21,9 @@ if ($alumno_id === 0) {
 } else {
     $alumno_actual = null;
     foreach($mis_hijos as $h) { if($h['id'] == $alumno_id) $alumno_actual = $h; }
-    $alumno_nombre = $alumno_actual['nombre_completo'];
+    
+    // Concatenamos nombre y apellido para el encabezado
+    $alumno_nombre = $alumno_actual['nombre'] . ' ' . $alumno_actual['apellido'];
 
     // 3. Obtener Precios
     $precios_res = $pdo->query("SELECT tipo, precio FROM precios_servicios")->fetchAll(PDO::FETCH_KEY_PAIR);
@@ -114,7 +116,7 @@ if ($alumno_id === 0) {
                            class="px-4 py-2 rounded-xl text-[11px] font-bold transition-all border flex items-center gap-2
                            <?= ($alumno_id == $hijo['id']) ? 'bg-[#ea580c] text-white border-[#ea580c] shadow-lg shadow-orange-200' : 'bg-slate-50 text-slate-400 border-slate-200' ?>">
                             <i class="ph-bold ph-student"></i>
-                            <?= htmlspecialchars($hijo['nombre_completo']) ?>
+                            <?= htmlspecialchars($hijo['nombre'] . ' ' . $hijo['apellido']) ?>
                         </a>
                     <?php endforeach; ?>
                 </div>

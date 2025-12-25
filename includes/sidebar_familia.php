@@ -9,7 +9,8 @@ $stmt_fam = $pdo->prepare("SELECT apellido_responsable FROM familias WHERE id = 
 $stmt_fam->execute([$familia_id]);
 $familia_data = $stmt_fam->fetch();
 
-$stmt_alumnos = $pdo->prepare("SELECT nombre_completo, curso FROM alumnos WHERE familia_id = ? AND activo = 1");
+// CORRECCIÓN: Se agrega 'anio' a la selección para poder mostrarlo
+$stmt_alumnos = $pdo->prepare("SELECT nombre, apellido, anio, curso FROM alumnos WHERE familia_id = ? AND status = 'ACTIVE'");
 $stmt_alumnos->execute([$familia_id]);
 $alumnos_vinculados = $stmt_alumnos->fetchAll();
 $cantidad_alumnos = count($alumnos_vinculados);
@@ -34,7 +35,7 @@ $deuda_monto = ($balance < 0) ? abs($balance) : 0;
 
     <div id="mobile-drawer" class="fixed inset-0 bg-[#0f172a] z-[60] transform translate-x-full transition-transform duration-300 ease-in-out p-8">
         <div class="flex justify-between items-center mb-10">
-            <span class="text-xl font-black italic uppercase tracking-tighter text-orange-500">Menú</span>
+            <span class="text-xl font-black uppercase tracking-tighter text-orange-500">Menú</span>
             <button id="close-drawer" class="text-3xl text-slate-400"><i class="ph ph-x"></i></button>
         </div>
 
@@ -79,7 +80,7 @@ $deuda_monto = ($balance < 0) ? abs($balance) : 0;
                 </div>
                 <div>
                     <p class="text-sm font-bold text-white leading-tight">Fam. <?= htmlspecialchars($familia_data['apellido_responsable'] ?? 'Gomez') ?></p>
-                    <p class="text-[10px] text-slate-500 uppercase">Cliente #<?= str_pad($familia_id, 4, '0', STR_PAD_LEFT) ?></p>
+                    <p class="text-[10px] text-slate-400 uppercase tracking-wider">ID Cliente: #<?= str_pad($familia_id, 4, '0', STR_PAD_LEFT) ?></p>
                 </div>
             </div>
 
@@ -87,7 +88,12 @@ $deuda_monto = ($balance < 0) ? abs($balance) : 0;
                 <?php foreach (array_slice($alumnos_vinculados, 0, 2) as $alu): ?>
                     <div class="text-[10px] text-slate-300 bg-slate-700/30 p-2 rounded-lg flex items-center gap-2">
                         <i class="ph ph-student text-orange-500"></i>
-                        <span class="truncate"><strong><?= htmlspecialchars($alu['nombre_completo']) ?></strong></span>
+                        <span class="truncate">
+                            <strong><?= htmlspecialchars($alu['nombre'] . ' ' . $alu['apellido']) ?></strong>
+                            <span class="text-slate-500 block">
+                                <?= htmlspecialchars($alu['anio']) ?>º <?= htmlspecialchars($alu['curso']) ?>
+                            </span>
+                        </span>
                     </div>
                 <?php endforeach; ?>
             </div>
@@ -132,11 +138,11 @@ $deuda_monto = ($balance < 0) ? abs($balance) : 0;
     const closeDrawerBtn = document.getElementById('close-drawer');
     const drawer = document.getElementById('mobile-drawer');
 
-    hamburgerBtn.addEventListener('click', () => {
+    hamburgerBtn?.addEventListener('click', () => {
         drawer.classList.remove('translate-x-full');
     });
 
-    closeDrawerBtn.addEventListener('click', () => {
+    closeDrawerBtn?.addEventListener('click', () => {
         drawer.classList.add('translate-x-full');
     });
 </script>

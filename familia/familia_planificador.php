@@ -5,57 +5,66 @@ require '../conexion/db.php';
 // 1. Identificación de la Familia e Hijos
 $familia_id = $_SESSION['familia_id'] ?? 1; 
 
-// Buscamos alumnos asociados
-$stmt_hijos = $pdo->prepare("SELECT id, nombre_completo, curso FROM alumnos WHERE familia_id = ? AND activo = 1");
+$stmt_hijos = $pdo->prepare("SELECT id, nombre, apellido, anio, curso FROM alumnos WHERE familia_id = ? AND status = 'ACTIVE'");
 $stmt_hijos->execute([$familia_id]);
 $mis_hijos = $stmt_hijos->fetchAll();
 
 $alumno_id = isset($_GET['alumno_id']) ? (int)$_GET['alumno_id'] : ($mis_hijos[0]['id'] ?? 1);
 
-// 2. Lógica de Navegación
+// 2. Lógica de Navegación Semanal
 $offset = isset($_GET['offset']) ? (int)$_GET['offset'] : 0;
-if (isset($_GET['goto_date'])) {
-    $target = new DateTime($_GET['goto_date']);
-    $base = new DateTime();
-    $base->setISODate((int)$base->format('Y'), (int)$base->format('W'));
-    $target->setISODate((int)$target->format('Y'), (int)$target->format('W'));
-    $offset = (int)($base->diff($target)->format('%r%a') / 7);
-}
-
 $monday = new DateTime();
 $monday->setISODate((int)date('Y'), (int)date('W'));
 if ($offset !== 0) { $monday->modify("$offset week"); }
 $start_week = $monday->format('Y-m-d');
 $end_week = (clone $monday)->modify('+4 days')->format('Y-m-d');
 
+$now = new DateTime(); 
+
 $success = false;
 
-// 3. Procesar Guardado (POST)
+// 3. Procesar Guardado con VALIDACIÓN DE HORARIO LÍMITE (9:00 AM)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['guardar_plan'])) {
+    $stmt_val = $pdo->prepare("SELECT fecha FROM menus WHERE fecha BETWEEN ? AND ?");
+    $stmt_val->execute([$start_week, $end_week]);
+    $fechas_validas = $stmt_val->fetchAll(PDO::FETCH_COLUMN);
+
     try {
         $pdo->beginTransaction();
         foreach ($_POST['day'] as $fecha => $data) {
-            $tipo = $data['tipo'];
-            $plato = $data['plato'] ?? 'Ninguno';
-            $postre = isset($data['postre']) ? 'SI' : 'NO';
-            $obs = ($tipo === 'menu') ? "Plato: $plato | Postre: $postre" : "";
+            $tipo = $data['tipo'] ?? ''; 
+            
+            $deadline = new DateTime($fecha . ' 09:00:00');
+            if ($now > $deadline) continue; 
 
-            $stmt = $pdo->prepare("INSERT INTO selecciones (alumno_id, fecha, tipo, observacion) 
-                                   VALUES (?, ?, ?, ?) 
-                                   ON DUPLICATE KEY UPDATE tipo = VALUES(tipo), observacion = VALUES(observacion)");
-            $stmt->execute([$alumno_id, $fecha, $tipo, $obs]);
+            if (empty($tipo) || !in_array($fecha, $fechas_validas)) continue;
+
+            $plato = ($tipo === 'menu') ? ($data['plato'] ?: null) : null;
+            if ($tipo === 'menu' && $plato === null) continue;
+
+            $postre = (isset($data['postre']) && $tipo === 'menu') ? 1 : 0;
+
+            $stmt = $pdo->prepare("INSERT INTO selecciones (alumno_id, fecha, tipo, plato_seleccionado, tiene_postre) 
+                                   VALUES (?, ?, ?, ?, ?) 
+                                   ON DUPLICATE KEY UPDATE 
+                                   tipo = VALUES(tipo), 
+                                   plato_seleccionado = VALUES(plato_seleccionado), 
+                                   tiene_postre = VALUES(tiene_postre)");
+            $stmt->execute([$alumno_id, $fecha, $tipo, $plato, $postre]);
         }
         $pdo->commit();
         $success = true;
-    } catch (Exception $e) { $pdo->rollBack(); }
+    } catch (Exception $e) { 
+        $pdo->rollBack(); 
+    }
 }
 
-// 4. Obtener Datos
-$stmt_m = $pdo->prepare("SELECT fecha, plato_principal, plato_alternativo, opcion_veggie, postre FROM menus WHERE fecha BETWEEN ? AND ?");
+// 4. Obtener Datos para la Interfaz
+$stmt_m = $pdo->prepare("SELECT fecha, id, plato_principal, plato_alternativo, opcion_veggie, postre FROM menus WHERE fecha BETWEEN ? AND ?");
 $stmt_m->execute([$start_week, $end_week]);
 $menus_semana = $stmt_m->fetchAll(PDO::FETCH_UNIQUE | PDO::FETCH_ASSOC);
 
-$stmt_s = $pdo->prepare("SELECT fecha, tipo, observacion FROM selecciones WHERE alumno_id = ? AND fecha BETWEEN ? AND ?");
+$stmt_s = $pdo->prepare("SELECT fecha, tipo, plato_seleccionado, tiene_postre FROM selecciones WHERE alumno_id = ? AND fecha BETWEEN ? AND ?");
 $stmt_s->execute([$alumno_id, $start_week, $end_week]);
 $selecciones = $stmt_s->fetchAll(PDO::FETCH_UNIQUE | PDO::FETCH_ASSOC);
 
@@ -74,26 +83,22 @@ $dias_nombres = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes'];
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <style>
         body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #fcfcfd; }
-        .day-card { border-radius: 2.5rem; transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1); background: white; }
+        .day-card { border-radius: 2.5rem; transition: all 0.4s; background: white; }
+        .day-disabled { opacity: 0.6; filter: grayscale(1); pointer-events: none; }
         .section-blur { filter: blur(6px); opacity: 0.3; pointer-events: none; transform: scale(0.97); }
         .dish-btn {
             width: 100%; text-align: left; padding: 0.85rem 1rem; border-radius: 18px;
             border: 2px solid #f1f5f9; font-size: 0.75rem; font-weight: 700;
-            transition: all 0.2s; position: relative; display: flex; align-items: center; gap: 8px;
+            transition: all 0.2s; display: flex; align-items: center; gap: 8px;
         }
         .dish-btn.active { border-color: #ea580c; background: #fff7ed; color: #9a3412; }
-        .dish-btn.active i { color: #ea580c; }
-        
         .mode-btn {
             flex: 1; padding: 0.75rem; border-radius: 18px; font-size: 9px; font-weight: 800;
             text-transform: uppercase; border: 2px solid #f1f5f9; background: #f8fafc; color: #94a3b8; transition: all 0.3s;
         }
         .mode-btn.active-vianda { border-color: #0f172a; background: #1e293b; color: white; }
         .mode-btn.active-ausente { border-color: #ef4444; background: #fef2f2; color: #ef4444; }
-        
-        /* Ajuste para scroll horizontal en el selector de hijos */
         .no-scrollbar::-webkit-scrollbar { display: none; }
-        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
     </style>
 </head>
 <body class="flex flex-col md:flex-row min-h-screen text-slate-800">
@@ -102,8 +107,8 @@ $dias_nombres = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes'];
 
     <main class="flex-1 flex flex-col min-w-0">
         <header class="min-h-24 bg-white/80 backdrop-blur-md border-b border-slate-100 px-4 md:px-8 py-4 flex flex-col sm:flex-row items-center justify-between sticky top-0 z-20 gap-4">
-            <div class="text-center sm:text-left">
-                <h1 class="text-lg md:text-xl font-black tracking-tighter uppercase italic">Planificador Semanal</h1>
+            <div>
+                <h1 class="text-lg md:text-xl font-black tracking-tighter uppercase">Planificador Semanal</h1>
                 <p class="text-[9px] text-slate-400 font-bold uppercase tracking-widest">Gestión de menú escolar</p>
             </div>
             
@@ -111,7 +116,6 @@ $dias_nombres = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes'];
                 <a href="?alumno_id=<?= $alumno_id ?>&offset=<?= $offset-1 ?>" class="w-9 h-9 md:w-10 md:h-10 flex items-center justify-center hover:bg-slate-50 text-slate-400 hover:text-orange-600 rounded-xl transition-all">
                     <i class="ph-bold ph-arrow-left text-lg"></i>
                 </a>
-                
                 <div class="px-4 md:px-6 text-center cursor-pointer relative" onclick="document.getElementById('calTrigger').showPicker()">
                     <span class="block text-[7px] font-black text-orange-500 uppercase tracking-widest leading-none mb-0.5">Semana del</span>
                     <span class="text-[10px] md:text-xs font-black text-slate-700 whitespace-nowrap uppercase">
@@ -119,7 +123,6 @@ $dias_nombres = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes'];
                     </span>
                     <input type="date" id="calTrigger" class="absolute inset-0 opacity-0" onchange="window.location.href='?alumno_id=<?= $alumno_id ?>&goto_date=' + this.value">
                 </div>
-
                 <a href="?alumno_id=<?= $alumno_id ?>&offset=<?= $offset+1 ?>" class="w-9 h-9 md:w-10 md:h-10 flex items-center justify-center hover:bg-slate-50 text-slate-400 hover:text-orange-600 rounded-xl transition-all">
                     <i class="ph-bold ph-arrow-right text-lg"></i>
                 </a>
@@ -127,15 +130,16 @@ $dias_nombres = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes'];
         </header>
 
         <?php if (count($mis_hijos) > 1): ?>
-        <div class="bg-white border-b border-slate-100 px-4 md:px-8 py-3 flex items-center gap-4 overflow-x-auto no-scrollbar">
+        <div class="bg-white border-b border-slate-100 px-4 md:px-8 py-3 flex items-center gap-4 overflow-x-auto no-scrollbar shadow-sm">
             <span class="text-[9px] font-black text-slate-400 uppercase tracking-widest whitespace-nowrap">Planificar para:</span>
             <div class="flex gap-2">
                 <?php foreach($mis_hijos as $hijo): ?>
                     <a href="?alumno_id=<?= $hijo['id'] ?>&offset=<?= $offset ?>" 
-                       class="px-4 py-2 rounded-xl text-[10px] font-bold transition-all border flex items-center gap-2 whitespace-nowrap
+                       class="px-5 py-2 rounded-2xl text-[10px] font-bold transition-all border flex items-center gap-2 whitespace-nowrap
                        <?= ($alumno_id == $hijo['id']) ? 'bg-[#ea580c] text-white border-[#ea580c] shadow-lg shadow-orange-200' : 'bg-slate-50 text-slate-400 border-slate-200 hover:bg-slate-100' ?>">
-                        <i class="ph-bold ph-student"></i>
-                        <?= htmlspecialchars($hijo['nombre_completo']) ?>
+                        <i class="ph-bold ph-student text-sm"></i> 
+                        <?= htmlspecialchars($hijo['nombre'] . ' ' . $hijo['apellido']) ?> 
+                        <span class="opacity-60">(<?= htmlspecialchars($hijo['anio']) ?>º <?= htmlspecialchars($hijo['curso']) ?>)</span>
                     </a>
                 <?php endforeach; ?>
             </div>
@@ -150,16 +154,27 @@ $dias_nombres = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes'];
                         $f = $date->format('Y-m-d');
                         $m = $menus_semana[$f] ?? null;
                         $sel = $selecciones[$f] ?? null;
-                        $tipo = $sel['tipo'] ?? 'menu'; 
-
-                        $plato_sel = ''; $postre_sel = false;
-                        if($sel && strpos($sel['observacion'] ?? '', 'Plato:') !== false) {
-                            preg_match('/Plato: (.*?) \|/', $sel['observacion'], $match_p);
-                            $plato_sel = $match_p[1] ?? '';
-                            $postre_sel = (strpos($sel['observacion'], 'Postre: SI') !== false);
-                        }
+                        
+                        $deadline = new DateTime($f . ' 09:00:00');
+                        $expired = ($now > $deadline);
+                        $menu_cargado = ($m !== null); 
+                        
+                        $tipo = $sel['tipo'] ?? ''; 
+                        $plato_sel = $sel['plato_seleccionado'] ?? '';
+                        $postre_sel = (isset($sel['tiene_postre']) && $sel['tiene_postre'] == 1);
                     ?>
-                    <div class="day-card p-5 md:p-6 border border-slate-100 shadow-sm flex flex-col min-h-[500px] relative overflow-hidden group hover:shadow-xl transition-shadow" id="card-<?= $f ?>">
+                    <div class="day-card p-5 md:p-6 border border-slate-100 shadow-sm flex flex-col min-h-[500px] relative overflow-hidden group <?= (!$menu_cargado || $expired) ? 'day-disabled' : 'hover:shadow-xl' ?>" id="card-<?= $f ?>">
+                        
+                        <?php if(!$menu_cargado): ?>
+                            <div class="absolute inset-0 z-30 flex items-center justify-center bg-white/40 backdrop-blur-[2px]">
+                                <span class="bg-slate-800 text-white text-[10px] font-black uppercase px-4 py-2 rounded-full shadow-lg">Menú no disponible</span>
+                            </div>
+                        <?php elseif($expired): ?>
+                            <div class="absolute inset-0 z-30 flex items-center justify-center bg-white/10 backdrop-blur-[1px]">
+                                <span class="bg-red-600 text-white text-[10px] font-black uppercase px-4 py-2 rounded-full shadow-lg">Plazo vencido (9:00 AM)</span>
+                            </div>
+                        <?php endif; ?>
+
                         <div class="mb-4 md:mb-6 flex justify-between items-start">
                             <div>
                                 <span class="text-slate-400 font-bold text-[9px] uppercase tracking-widest block mb-1"><?= $dias_nombres[$i] ?></span>
@@ -173,22 +188,24 @@ $dias_nombres = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes'];
                         <input type="hidden" name="day[<?= $f ?>][tipo]" id="tipo-<?= $f ?>" value="<?= $tipo ?>">
                         <input type="hidden" name="day[<?= $f ?>][plato]" id="plato-<?= $f ?>" value="<?= $plato_sel ?>">
 
-                        <div id="section-<?= $f ?>" class="flex-1 space-y-3 transition-all duration-500 <?= ($tipo !== 'menu') ? 'section-blur' : '' ?>">
-                            <p class="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1">Opciones Disponibles</p>
+                        <div id="section-<?= $f ?>" class="flex-1 space-y-3 transition-all duration-500 <?= ($tipo === 'vianda' || $tipo === 'ausente') ? 'section-blur' : '' ?>">
+                            <p class="text-[7px] font-black text-orange-600 uppercase tracking-widest mb-1">
+                                Selección válida hasta las 9:00 AM del mismo día
+                            </p>
 
-                            <button type="button" onclick="setDish('<?= $f ?>', 'Principal')" id="btn-p-<?= $f ?>" class="dish-btn <?= ($plato_sel == 'Principal') ? 'active' : '' ?>">
+                            <button type="button" onclick="setDish('<?= $f ?>', 'Principal')" class="dish-btn <?= ($plato_sel == 'Principal') ? 'active' : '' ?>">
                                 <i class="ph-bold ph-bowl-food text-lg"></i>
-                                <span class="truncate"><?= $m['plato_principal'] ?? 'No cargado' ?></span>
+                                <span class="truncate"><?= !empty($m['plato_principal']) ? htmlspecialchars($m['plato_principal']) : 'Plato no cargado' ?></span>
                             </button>
 
-                            <button type="button" onclick="setDish('<?= $f ?>', 'Alternativo')" id="btn-a-<?= $f ?>" class="dish-btn <?= ($plato_sel == 'Alternativo') ? 'active' : '' ?>">
+                            <button type="button" onclick="setDish('<?= $f ?>', 'Alternativo')" class="dish-btn <?= ($plato_sel == 'Alternativo') ? 'active' : '' ?>">
                                 <i class="ph-bold ph-cooking-pot text-lg"></i>
-                                <span class="truncate"><?= $m['plato_alternativo'] ?? 'No cargado' ?></span>
+                                <span class="truncate"><?= !empty($m['plato_alternativo']) ? htmlspecialchars($m['plato_alternativo']) : 'Opción no cargada' ?></span>
                             </button>
 
-                            <button type="button" onclick="setDish('<?= $f ?>', 'Veggie')" id="btn-v-<?= $f ?>" class="dish-btn <?= ($plato_sel == 'Veggie') ? 'active' : '' ?>">
+                            <button type="button" onclick="setDish('<?= $f ?>', 'Veggie')" class="dish-btn <?= ($plato_sel == 'Veggie') ? 'active' : '' ?>">
                                 <i class="ph-bold ph-leaf text-lg"></i>
-                                <span class="truncate"><?= $m['opcion_veggie'] ?? 'No cargado' ?></span>
+                                <span class="truncate"><?= !empty($m['opcion_veggie']) ? htmlspecialchars($m['opcion_veggie']) : 'Opción no cargada' ?></span>
                             </button>
 
                             <div class="pt-4 mt-2 border-t border-slate-50">
@@ -218,7 +235,7 @@ $dias_nombres = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes'];
                 </div>
 
                 <div class="mt-8 md:mt-12 flex justify-center pb-20 px-4">
-                    <button type="submit" name="guardar_plan" class="w-full md:w-auto bg-[#ea580c] text-white px-8 md:px-16 py-4 md:py-5 rounded-[2rem] font-black text-sm md:text-lg hover:bg-orange-700 hover:scale-105 transition-all shadow-xl shadow-orange-200 flex items-center justify-center gap-4 active:scale-95">
+                    <button type="submit" name="guardar_plan" class="w-full md:w-auto bg-[#ea580c] text-white px-8 md:px-16 py-4 md:py-5 rounded-[2rem] font-black text-sm md:text-lg hover:bg-orange-700 shadow-xl flex items-center justify-center gap-4 transition-all">
                         <i class="ph-bold ph-cloud-arrow-up text-2xl md:text-3xl"></i> 
                         <span class="whitespace-nowrap uppercase">Guardar Planificación</span>
                     </button>
@@ -228,28 +245,39 @@ $dias_nombres = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes'];
     </main>
 
     <script>
+        function isDayEnabled(fecha) {
+            const card = document.getElementById('card-' + fecha);
+            return card && !card.classList.contains('day-disabled');
+        }
+
         function setDish(fecha, choice) {
+            if(!isDayEnabled(fecha)) return;
             document.getElementById('plato-' + fecha).value = choice;
             document.getElementById('tipo-' + fecha).value = 'menu';
+            
             const card = document.getElementById('card-' + fecha);
             card.querySelectorAll('.dish-btn').forEach(b => b.classList.remove('active'));
-            const map = { 'Principal': 'btn-p-', 'Alternativo': 'btn-a-', 'Veggie': 'btn-v-' };
-            const target = document.getElementById(map[choice] + fecha);
-            if(target) target.classList.add('active');
+            const btns = card.querySelectorAll('.dish-btn');
+            if(choice === 'Principal') btns[0].classList.add('active');
+            if(choice === 'Alternativo') btns[1].classList.add('active');
+            if(choice === 'Veggie') btns[2].classList.add('active');
+
             document.getElementById('section-' + fecha).classList.remove('section-blur');
             document.getElementById('m-v-' + fecha).classList.remove('active-vianda');
             document.getElementById('m-a-' + fecha).classList.remove('active-ausente');
         }
 
         function setMode(fecha, type) {
+            if(!isDayEnabled(fecha)) return;
             const input = document.getElementById('tipo-' + fecha);
             const section = document.getElementById('section-' + fecha);
+            
             if (input.value === type) {
-                input.value = 'menu'; 
+                input.value = ''; 
                 section.classList.remove('section-blur');
                 document.getElementById('m-' + type.charAt(0) + '-' + fecha).classList.remove('active-' + type);
             } else {
-                input.value = type; 
+                input.value = type;
                 section.classList.add('section-blur');
                 document.getElementById('m-v-' + fecha).classList.remove('active-vianda');
                 document.getElementById('m-a-' + fecha).classList.remove('active-ausente');
@@ -260,6 +288,7 @@ $dias_nombres = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes'];
         }
 
         function togglePostreUI(fecha) {
+            if(!isDayEnabled(fecha)) return;
             const chk = document.getElementById('chk-postre-' + fecha);
             const ui = document.getElementById('ui-postre-' + fecha);
             const text = ui.querySelector('span');
@@ -275,13 +304,7 @@ $dias_nombres = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes'];
         }
 
         <?php if ($success): ?>
-            Swal.fire({ 
-                title: '¡Perfecto!', 
-                text: 'La planificación ha sido guardada correctamente.', 
-                icon: 'success', 
-                confirmButtonColor: '#ea580c', 
-                borderRadius: '2.5rem' 
-            });
+            Swal.fire({ title: '¡Hecho!', text: 'Planificación guardada.', icon: 'success', confirmButtonColor: '#ea580c', borderRadius: '2.5rem' });
         <?php endif; ?>
     </script>
 </body>

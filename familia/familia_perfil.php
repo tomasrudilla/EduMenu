@@ -11,8 +11,8 @@ if (!$familia_id || !$user_id) {
     exit;
 }
 
-// 2. OBTENER TODOS LOS HIJOS VINCULADOS
-$stmt_hijos = $pdo->prepare("SELECT id, nombre_completo, curso FROM alumnos WHERE familia_id = ? AND activo = 1");
+// 2. OBTENER TODOS LOS HIJOS VINCULADOS (Corregido: nombre, apellido y status)
+$stmt_hijos = $pdo->prepare("SELECT id, nombre, apellido, curso FROM alumnos WHERE familia_id = ? AND status = 'ACTIVE'");
 $stmt_hijos->execute([$familia_id]);
 $mis_hijos = $stmt_hijos->fetchAll();
 
@@ -28,12 +28,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['guardar_cambios'])) {
 
     try {
         $pdo->beginTransaction();
+        // Actualizar alergias del alumno específico
         $stmt1 = $pdo->prepare("UPDATE alumnos SET alergias = ? WHERE id = ? AND familia_id = ?");
         $stmt1->execute([$alergias, $target_alumno, $familia_id]);
 
+        // Actualizar teléfono de la familia
         $stmt2 = $pdo->prepare("UPDATE familias SET telefono = ? WHERE id = ?");
         $stmt2->execute([$telefono, $familia_id]);
 
+        // Actualizar email del usuario
         $stmt3 = $pdo->prepare("UPDATE usuarios SET email = ? WHERE id = ?");
         $stmt3->execute([$email, $user_id]);
 
@@ -45,10 +48,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['guardar_cambios'])) {
     }
 }
 
-// 4. OBTENER DATOS ACTUALES
+// 4. OBTENER DATOS ACTUALES (Corregido: nombre y apellido separados)
+$datos = null;
 if ($alumno_id > 0) {
     $stmt = $pdo->prepare("
-        SELECT a.nombre_completo, a.curso, a.alergias, f.telefono, u.email 
+        SELECT a.nombre, a.apellido, a.curso, a.alergias, f.telefono, u.email 
         FROM alumnos a 
         JOIN familias f ON a.familia_id = f.id 
         JOIN usuarios u ON u.familia_id = f.id 
@@ -61,6 +65,9 @@ if ($alumno_id > 0) {
 if (!$datos) {
     die("No se pudo recuperar la información. Verifica la vinculación de alumnos.");
 }
+
+// Concatenamos para mostrar el nombre completo
+$nombre_completo_alumno = $datos['nombre'] . ' ' . $datos['apellido'];
 ?>
 <!DOCTYPE html>
 <html lang="es">
@@ -77,10 +84,7 @@ if (!$datos) {
         .form-input { width: 100%; padding: 12px 16px; background-color: #f8fafc; border: 1.5px solid #e2e8f0; border-radius: 14px; outline: none; transition: all 0.2s; }
         .form-input:focus { border-color: #ea580c; background-color: #fff; box-shadow: 0 0 0 4px rgba(234, 88, 12, 0.1); }
         .section-card { background: white; border-radius: 2rem; border: 1px solid #e2e8f0; padding: 1.5rem; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); }
-        @media (min-width: 768px) { .section-card { padding: 2.5rem; } }
-        /* Ocultar scrollbar en selector */
         .no-scrollbar::-webkit-scrollbar { display: none; }
-        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
     </style>
 </head>
 <body class="flex flex-col md:flex-row min-h-screen text-slate-800">
@@ -106,8 +110,7 @@ if (!$datos) {
                            class="px-4 py-2 rounded-xl text-xs font-bold transition-all border flex items-center gap-2 whitespace-nowrap
                            <?= ($alumno_id == $hijo['id']) ? 'bg-[#ea580c] text-white border-[#ea580c] shadow-lg shadow-orange-200' : 'bg-slate-50 text-slate-400 border-slate-200' ?>">
                             <i class="ph-bold ph-student"></i>
-                            <?= htmlspecialchars($hijo['nombre_completo']) ?>
-                        </a>
+                            <?= htmlspecialchars($hijo['nombre'] . ' ' . $hijo['apellido']) ?> </a>
                     <?php endforeach; ?>
                 </div>
             </div>
@@ -127,7 +130,7 @@ if (!$datos) {
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
                             <div>
                                 <label class="text-[10px] font-bold text-slate-400 uppercase mb-2 block">Nombre Completo</label>
-                                <input type="text" class="form-input font-bold opacity-70" value="<?= htmlspecialchars($datos['nombre_completo']) ?>" disabled>
+                                <input type="text" class="form-input font-bold opacity-70" value="<?= htmlspecialchars($nombre_completo_alumno) ?>" disabled>
                             </div>
                             <div>
                                 <label class="text-[10px] font-bold text-slate-400 uppercase mb-2 block">Curso / División</label>
@@ -139,7 +142,7 @@ if (!$datos) {
                     <div class="section-card border-l-4 border-l-orange-500">
                         <div class="flex items-center gap-3 mb-6 md:mb-8 border-b pb-4">
                             <i class="ph ph-first-aid-kit text-2xl text-red-600"></i>
-                            <h3 class="text-base md:text-lg font-extrabold text-slate-800">Salud de <?= explode(' ', $datos['nombre_completo'])[0] ?></h3>
+                            <h3 class="text-base md:text-lg font-extrabold text-slate-800">Salud de <?= htmlspecialchars($datos['nombre']) ?></h3>
                         </div>
                         <label class="text-[10px] font-bold text-slate-500 uppercase mb-2 block">Alergias o Condiciones Médicas</label>
                         <textarea name="alergias" rows="3" class="form-input font-semibold" placeholder="Sin restricciones declaradas."><?= htmlspecialchars($datos['alergias']) ?></textarea>
@@ -157,7 +160,7 @@ if (!$datos) {
                             </div>
                             <div>
                                 <label class="text-[10px] font-bold text-slate-400 uppercase mb-2 block">Email Principal</label>
-                                <input type="email" name="email" class="form-control form-input font-semibold" value="<?= htmlspecialchars($datos['email']) ?>">
+                                <input type="email" name="email" class="form-input font-semibold" value="<?= htmlspecialchars($datos['email']) ?>">
                             </div>
                         </div>
                     </div>
